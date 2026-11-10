@@ -5,7 +5,7 @@ returns one of three decisions:
 
 * ``SPAM``   – near-certain spam (strong phrases, or invite+@everyone); act
   immediately, no LLM call.
-* ``CLEAN``  – no spam signals at all; ignore, no LLM call.
+* ``CLEAN``  – no local spam signals; still hand off to the LLM.
 * ``SUSPECT``– some signal (link, mass mention, or scam-product keyword) but not
   enough to act alone; hand off to the LLM.
 
@@ -125,7 +125,7 @@ def evaluate(
     if has_link:
         return RuleResult(Decision.SUSPECT, "Contains a link but no obvious scam wording")
     if mass_mention:
-        return RuleResult(Decision.SUSPECT, "Mass mention (@everyone/@here) from a new member")
+        return RuleResult(Decision.SUSPECT, "Mass mention (@everyone/@here)")
     if has_promo:
         return RuleResult(Decision.SUSPECT, f"Contains {promo_desc}")
 

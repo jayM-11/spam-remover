@@ -1,4 +1,4 @@
-"""Orchestrates the two detection stages: fast rules, then Claude for borderline."""
+"""Catch obvious spam with rules, then ask Claude about remaining messages."""
 
 from __future__ import annotations
 
@@ -17,11 +17,7 @@ class Verdict:
 
 
 class Classifier:
-    """Combines the rule pre-filter with an LLM second opinion.
-
-    The LLM is only consulted for ``SUSPECT`` messages, so clean and obviously
-    spammy messages cost nothing.
-    """
+    """Use local spam rules first and consult the LLM for every other message."""
 
     def __init__(self, judge: SpamJudge, *, extra_keywords: Sequence[str] = ()) -> None:
         self._judge = judge
@@ -36,9 +32,6 @@ class Classifier:
 
         if result.decision is Decision.SPAM:
             return Verdict(True, result.reason, source="rules")
-        if result.decision is Decision.CLEAN:
-            return Verdict(False, result.reason, source="rules")
-
-        # SUSPECT: ask the LLM.
+        # An absence of keyword signals does not prove a message is clean.
         llm_verdict = await self._judge.classify(content)
         return Verdict(llm_verdict.is_spam, llm_verdict.reason, source="llm")

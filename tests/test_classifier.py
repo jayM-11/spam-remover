@@ -29,15 +29,17 @@ async def test_obvious_spam_does_not_call_llm():
     assert judge.calls == []  # short-circuited, no API cost
 
 
-async def test_clean_message_does_not_call_llm():
-    judge = SpyJudge(LLMVerdict(True, "should never run"))
+@pytest.mark.parametrize("is_spam", [True, False])
+async def test_message_without_keyword_signals_uses_llm_verdict(is_spam):
+    judge = SpyJudge(LLMVerdict(is_spam, "Model judgment"))
     classifier = Classifier(judge)
 
     verdict = await classifier.classify("hi everyone, glad to be here!")
 
-    assert verdict.is_spam is False
-    assert verdict.source == "rules"
-    assert judge.calls == []
+    assert verdict.is_spam is is_spam
+    assert verdict.source == "llm"
+    assert verdict.reason == "Model judgment"
+    assert judge.calls == ["hi everyone, glad to be here!"]
 
 
 async def test_suspect_message_is_routed_to_llm_and_respects_spam_verdict():

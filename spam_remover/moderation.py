@@ -33,25 +33,32 @@ class Moderator:
 
     async def handle_spam(self, message, verdict: Verdict) -> None:
         member = message.author
+        deleted = kicked = False
         if not self._config.dry_run:
-            await self._delete_message(message)
-            await self._kick_member(member, verdict)
-        await self._notify_officers(message, member, verdict)
+            deleted = await self._delete_message(message)
+            kicked = await self._kick_member(member, verdict)
+        await self._notify_officers(message, member, verdict, deleted=deleted, kicked=kicked)
 
-    async def _delete_message(self, message) -> None:
+    async def _delete_message(self, message) -> bool:
         try:
             await message.delete()
+            return True
         except discord.HTTPException:
             logger.exception("Failed to delete spam message %s", getattr(message, "id", "?"))
+            return False
 
-    async def _kick_member(self, member, verdict: Verdict) -> None:
+    async def _kick_member(self, member, verdict: Verdict) -> bool:
         reason = f"Spam joiner: {verdict.reason}"[:512]
         try:
             await member.kick(reason=reason)
+            return True
         except discord.HTTPException:
             logger.exception("Failed to kick member %s", getattr(member, "id", "?"))
+            return False
 
-    async def _notify_officers(self, message, member, verdict: Verdict) -> None:
+    async def _notify_officers(
+        self, message, member, verdict: Verdict, *, deleted: bool, kicked: bool
+    ) -> None:
         channel = self._client.get_channel(self._config.officer_channel_id)
         if channel is None:
             logger.error(
@@ -64,14 +71,27 @@ class Moderator:
             target_label=str(member),
         )
         try:
-            await channel.send(embed=self._build_embed(message, member, verdict), view=view)
+            embed = self._build_embed(message, member, verdict, deleted=deleted, kicked=kicked)
+            await channel.send(embed=embed, view=view)
         except discord.HTTPException:
             logger.exception("Failed to post officer notice")
 
-    def _build_embed(self, message, member, verdict: Verdict) -> discord.Embed:
+    def _build_embed(
+        self, message, member, verdict: Verdict, *, deleted: bool, kicked: bool
+    ) -> discord.Embed:
         dry = self._config.dry_run
+        if dry:
+            action = "Flagged only (DRY RUN). Officers may use Kick or Ban manually."
+        else:
+            kick_status = f"Kicked {member}." if kicked else f"Failed to kick {member}."
+            delete_status = (
+                f"Deleted their message from {_channel_mention(message)}."
+                if deleted else f"Failed to delete their message from {_channel_mention(message)}."
+            )
+            action = f"{kick_status} {delete_status}"
         embed = discord.Embed(
-            title="🚫 Spam joiner detected" if dry else "🚫 Spam joiner removed",
+            title="🚫 Spam joiner removed" if kicked else "🚫 Spam joiner detected",
+            description=action,
             color=discord.Color.orange() if dry else discord.Color.red(),
             timestamp=datetime.now(timezone.utc),
         )
@@ -82,7 +102,7 @@ class Moderator:
         embed.add_field(name="Detected by", value=verdict.source, inline=True)
         embed.add_field(
             name="Action",
-            value="Flagged only (DRY RUN)" if dry else "Message deleted & user kicked",
+            value=action[:_MAX_FIELD],
             inline=True,
         )
         embed.set_footer(

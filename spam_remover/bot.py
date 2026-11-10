@@ -7,7 +7,6 @@ the ``detection`` package and ``moderation`` module, which are unit-tested.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 
 import discord
 from anthropic import AsyncAnthropic
@@ -20,16 +19,6 @@ from .moderation import Moderator
 logger = logging.getLogger(__name__)
 
 
-def is_recent_joiner(member: discord.Member, window_hours: int, *, now: datetime | None = None) -> bool:
-    """True if the member joined within the configured window (or join time unknown)."""
-    joined_at = getattr(member, "joined_at", None)
-    if joined_at is None:
-        # Discord didn't tell us; err toward scanning (trusted roles are filtered separately).
-        return True
-    now = now or datetime.now(timezone.utc)
-    return (now - joined_at) <= timedelta(hours=window_hours)
-
-
 def has_trusted_role(member: discord.Member, trusted_role_ids: frozenset[int]) -> bool:
     if not trusted_role_ids:
         return False
@@ -40,8 +29,9 @@ class SpamRemoverClient(discord.Client):
     def __init__(self, config: Config, classifier: Classifier, moderator: Moderator) -> None:
         intents = discord.Intents.default()
         intents.message_content = True  # privileged: read message text
-        intents.members = True  # privileged: see joins / member.joined_at
+        intents.members = True  # privileged: member and role information
         super().__init__(intents=intents)
+        self._started_at = discord.utils.utcnow()
         self._config = config
         self._classifier = classifier
         self._moderator = moderator
@@ -83,6 +73,8 @@ class SpamRemoverClient(discord.Client):
                 )
 
     def _should_scan(self, message: discord.Message) -> bool:
+        if message.created_at < self._started_at:
+            return False
         if message.author.bot or message.guild is None:
             return False
         if not isinstance(message.author, discord.Member):
@@ -91,7 +83,7 @@ class SpamRemoverClient(discord.Client):
             return False
         if has_trusted_role(message.author, self._config.trusted_role_ids):
             return False
-        return is_recent_joiner(message.author, self._config.new_member_window_hours)
+        return True
 
     async def on_message(self, message: discord.Message) -> None:
         if not self._should_scan(message):

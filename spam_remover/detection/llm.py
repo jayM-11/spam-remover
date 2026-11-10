@@ -1,8 +1,4 @@
-"""Claude-backed second opinion for borderline ('suspect') messages.
-
-Only messages the rule stage cannot decide reach this stage, so volume — and
-therefore cost — stays low. The model is asked for a strict JSON verdict.
-"""
+"""Claude-backed spam classification for messages not caught by local spam rules."""
 
 from __future__ import annotations
 
@@ -15,10 +11,11 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are a Discord moderation assistant for a student club. You judge whether "
-    "a message from a brand-new member is spam. Spam joiners advertise free "
+    "a server message is spam, regardless of how long the author has been a member. "
+    "Spammers advertise free "
     "giveaways, free Discord Nitro, gift cards, crypto/NFT airdrops, account boosts, "
     "adult content, or push people to DM them or click a sketchy link to 'claim' "
-    "something. Legitimate new members say hello, ask questions, or share relevant "
+    "something. Legitimate members say hello, ask questions, or share relevant "
     "links (GitHub, course materials, news).\n\n"
     "Respond with ONLY a compact JSON object and nothing else, in the form:\n"
     '{"is_spam": true|false, "reason": "<one short sentence>"}\n'

@@ -66,3 +66,23 @@ async def test_non_officer_is_blocked_with_ephemeral_notice():
     assert await view.interaction_check(interaction) is False
     interaction.response.send_message.assert_awaited_once()
     assert interaction.response.send_message.call_args.kwargs.get("ephemeral") is True
+
+
+@pytest.mark.parametrize("action", ["Kick", "Ban"])
+async def test_manual_officer_actions_work(action):
+    view = OfficerActionView(target_user_id=42, target_label="x")
+    interaction = make_interaction(kick=True, ban=True)
+    interaction.guild.kick = AsyncMock()
+    interaction.guild.ban = AsyncMock()
+    interaction.message.embeds = []
+    interaction.response.edit_message = AsyncMock()
+    button = next(c for c in view.children if c.label == action)
+
+    assert button.disabled is False
+    assert await view.interaction_check(interaction) is True
+    await button.callback(interaction)
+
+    action_method = interaction.guild.kick if action == "Kick" else interaction.guild.ban
+    action_method.assert_awaited_once()
+    assert action_method.call_args.args[0].id == 42
+    interaction.response.edit_message.assert_awaited_once()

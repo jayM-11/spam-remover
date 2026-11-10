@@ -4,6 +4,7 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import discord
 
 from spam_remover.config import Config
 from spam_remover.detection.classifier import Verdict
@@ -63,6 +64,7 @@ async def test_normal_mode_deletes_kicks_and_notifies():
     embed = channel.send.call_args.kwargs["embed"]
     fields = {field.name: field.value for field in embed.fields}
     assert fields["Channel"] == "<#123>"
+    assert embed.description == "Kicked Spammer#0001. Deleted their message from <#123>."
 
 
 async def test_dry_run_notifies_but_does_not_delete_or_kick():
@@ -76,6 +78,34 @@ async def test_dry_run_notifies_but_does_not_delete_or_kick():
     message.delete.assert_not_called()
     member.kick.assert_not_called()
     channel.send.assert_awaited_once()
+    view = channel.send.call_args.kwargs["view"]
+    assert view.kick.disabled is False
+    assert view.ban.disabled is False
+    assert view.not_spam.disabled is False
+    assert "Flagged only (DRY RUN)" in channel.send.call_args.kwargs["embed"].description
+
+
+@pytest.mark.parametrize("delete_fails,kick_fails", [(True, False), (False, True), (True, True)])
+async def test_notice_reports_actual_action_outcomes(delete_fails, kick_fails):
+    message, member = make_message()
+    error = discord.Forbidden(MagicMock(status=403, reason="Forbidden"), "Missing permissions")
+    if delete_fails:
+        message.delete.side_effect = error
+    if kick_fails:
+        member.kick.side_effect = error
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    moderator = Moderator(make_config(dry_run=False), make_client(channel))
+
+    await moderator.handle_spam(message, VERDICT)
+
+    embed = channel.send.call_args.kwargs["embed"]
+    assert ("Failed to kick" in embed.description) is kick_fails
+    assert ("Failed to delete" in embed.description) is delete_fails
+    assert "Spammer#0001" in embed.description
+    assert "<#123>" in embed.description
+    message.delete.assert_awaited_once()
+    member.kick.assert_awaited_once()
 
 
 async def test_missing_officer_channel_does_not_crash():

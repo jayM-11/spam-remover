@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
-DEFAULT_NEW_MEMBER_WINDOW_HOURS = 48
 
 
 class ConfigError(ValueError):
@@ -50,7 +49,6 @@ class Config:
     discord_token: str
     anthropic_api_key: str
     officer_channel_id: int
-    new_member_window_hours: int = DEFAULT_NEW_MEMBER_WINDOW_HOURS
     trusted_role_ids: frozenset[int] = field(default_factory=frozenset)
     monitored_channel_ids: frozenset[int] = field(default_factory=frozenset)
     extra_keywords: tuple[str, ...] = ()
@@ -86,19 +84,10 @@ class Config:
         except ValueError as exc:
             raise ConfigError("OFFICER_CHANNEL_ID must be a number") from exc
 
-        window_raw = (os.getenv("NEW_MEMBER_WINDOW_HOURS") or "").strip()
-        try:
-            window = int(window_raw) if window_raw else DEFAULT_NEW_MEMBER_WINDOW_HOURS
-        except ValueError as exc:
-            raise ConfigError("NEW_MEMBER_WINDOW_HOURS must be a number") from exc
-        if window <= 0:
-            raise ConfigError("NEW_MEMBER_WINDOW_HOURS must be positive")
-
         return cls(
             discord_token=token,
             anthropic_api_key=api_key,
             officer_channel_id=officer_channel_id,
-            new_member_window_hours=window,
             trusted_role_ids=_parse_id_list(os.getenv("TRUSTED_ROLE_IDS")),
             monitored_channel_ids=_parse_id_list(os.getenv("MONITORED_CHANNEL_IDS")),
             extra_keywords=_parse_keywords(os.getenv("SPAM_KEYWORDS")),

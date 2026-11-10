@@ -1,10 +1,10 @@
 # spam-remover
 
 A Discord bot that automatically removes **spam joiners** — accounts that join the
-server and immediately post "🎁 free giveaway / free Nitro / DM me to claim" scams —
+server and post "🎁 free giveaway / free Nitro / DM me to claim" scams —
 so a club officer never has to delete the message and kick the person by hand.
 
-When a new member's message is judged to be spam, the bot **deletes the message,
+When a member's message is judged to be spam, the bot **deletes the message,
 kicks the user** (they can rejoin, so a mistake is recoverable), and **posts a notice
 to an officer channel** with the user, the channel it was posted in, the deleted
 text, and the reason.
@@ -43,18 +43,26 @@ Two stages, cheapest first:
 
 1. **Rules (instant, free):** keyword / link / `@everyone` heuristics catch obvious
    scams — "free nitro", server-invite links plus promo wording, etc.
-2. **Claude (only for borderline cases):** a message with a link or mention but no
-   obvious scam wording is sent to Claude Haiku for a yes/no spam judgment. Clean and
-   obviously-spammy messages never hit the API, so cost stays near zero.
+2. **Claude (all remaining messages):** every message not already flagged as spam
+   by the rules is sent to Claude Haiku, even without links or keywords. Obvious
+   spam avoids API calls; normal conversation now also uses the API.
 
-Only messages from **recent joiners** (default: first 48 hours) are scanned, and
-members with a **trusted role** are never scanned — so established members are untouched.
+New messages from **all members**, regardless of join date, are scanned in the
+configured channels. Bot messages, DMs, and members with a **trusted role** are
+excluded. This scans incoming messages, not historical channel messages.
+Messages created before the current bot process started are ignored, even if
+delivered later. The cutoff stays fixed across reconnects.
+NEW_MEMBER_WINDOW_HOURS is no longer used; existing .env entries can be removed.
 
 ## Safety: start in DRY RUN
 
 `DRY_RUN=true` (the default) makes the bot **detect and notify officers but take no
 action**. Run it this way for a few days to confirm it isn't flagging real members,
 then set `DRY_RUN=false` to let it delete and kick.
+Officers can still use the Kick and Ban buttons manually during dry runs.
+Dry run disables automatic deletion and kicking only; the bot never auto-bans.
+In live mode, officer notices name the kicked member and link the channel where
+their message was deleted. Failed actions are explicitly reported as failures.
 
 ## Discord setup (one time)
 
@@ -62,7 +70,7 @@ then set `DRY_RUN=false` to let it delete and kick.
    → *Bot* tab → *Reset Token* and copy it into `DISCORD_TOKEN`.
 2. **Enable privileged intents** (Bot tab → *Privileged Gateway Intents*):
    - ✅ **Message Content Intent** — required to read message text.
-   - ✅ **Server Members Intent** — required to know when members joined.
+   - ✅ **Server Members Intent** — used for member and role information.
 3. **Invite the bot** with the *Kick Members*, *Ban Members*, and *Manage Messages*
    permissions (OAuth2 → URL Generator → scope `bot`, then those three). Those
    power the 👢 Kick and 🔨 Ban buttons on officer notices.
@@ -78,9 +86,8 @@ Copy `.env.example` to `.env` and fill it in:
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `DISCORD_TOKEN` | ✅ | — | Bot token. |
-| `ANTHROPIC_API_KEY` | ✅ | — | Key for the Claude borderline-classifier. |
+| `ANTHROPIC_API_KEY` | ✅ | — | Key for the Claude classifier. |
 | `OFFICER_CHANNEL_ID` | ✅ | — | Channel where notices are posted. |
-| `NEW_MEMBER_WINDOW_HOURS` | | `48` | Only scan members who joined within this many hours. |
 | `TRUSTED_ROLE_IDS` | | — | Comma-separated role IDs that are never scanned. |
 | `MONITORED_CHANNEL_IDS` | | all | Comma-separated channels to watch; empty = all. |
 | `SPAM_KEYWORDS` | | — | Extra comma-separated spam keywords. |
@@ -112,8 +119,10 @@ What each file proves:
 
 - `tests/test_rules.py` — obvious scams ("free nitro…") are flagged `SPAM`, normal
   greetings are `CLEAN`, and bare links/mentions are `SUSPECT` (handed to the LLM).
-- `tests/test_classifier.py` — `SPAM`/`CLEAN` decisions **never call the LLM** (the
-  cost short-circuit), and only `SUSPECT` messages reach it.
+- `tests/test_classifier.py` — `SPAM` decisions **never call the LLM**; both
+  `CLEAN` and `SUSPECT` rule results reach it and respect its verdict.
+- `tests/test_bot.py` — all join ages are scanned, configured exclusions still
+  apply, and only spam verdicts trigger moderation.
 - `tests/test_moderation.py` — normal mode deletes + kicks + notifies; **`DRY_RUN`
   notifies only** and never deletes or kicks; a missing officer channel doesn't crash.
 - `tests/test_views.py` — officer Kick / Ban / Not-spam buttons enforce permissions
@@ -126,7 +135,7 @@ keyword needs tuning in `spam_remover/detection/rules.py`.
 
 1. Fill `.env` with a test bot token + a test server's officer channel ID, keep `DRY_RUN=true`.
 2. `python -m spam_remover.bot` → log should read `Logged in as … — DRY RUN (no kicks)`.
-3. From a second, freshly-joined, non-trusted account post `🎁 free nitro, dm me` →
+3. From a second, non-trusted account (any join age) post `🎁 free nitro, dm me` →
    an officer-channel notice appears **and the message is NOT deleted** (dry run).
 4. Post `hey all!` → no notice.
 5. Set `DRY_RUN=false`, repeat step 3 → message is deleted, the account is kicked, and
@@ -155,7 +164,7 @@ spam_remover/
   views.py             # officer Kick / Ban / Not-spam buttons on the notice
   detection/
     rules.py           # pure rule pre-filter (SPAM / CLEAN / SUSPECT)
-    llm.py             # Claude Haiku judge for borderline messages
+    llm.py             # Claude Haiku judge for messages not caught by rules
     classifier.py      # orchestrates rules -> llm
 tests/                 # pytest suite for rules, classifier, moderation, views
 .env.example           # copy to .env and add your keys

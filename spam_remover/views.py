@@ -4,6 +4,7 @@ Three buttons: **Kick** (remove them; they can rejoin), **Ban** (permanent block
 and **Not spam** (dismiss a false positive). All are gated to officers who hold
 Kick/Ban permission, and clicking any one resolves the notice — it records who
 acted and disables the buttons so two officers don't double-act.
+Manual officer actions remain available in dry-run mode.
 
 Note: the view is bound to the running bot process. If the bot restarts, buttons
 on old notices stop responding (Discord shows "interaction failed"); officers can
